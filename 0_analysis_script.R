@@ -1,3 +1,4 @@
+rm(list = ls())
 library(readr)
 library(lubridate)
 library(dplyr)
@@ -8,12 +9,13 @@ library(openxlsx)
 library(semPlot)
 library(semTools)
 library(mixmgfa)
+library(magrittr)
 source("MixtureMG_FA.R")
 source("MixtureMG_FA_intercepts.R")
 source("MixtureMG_FA_loadings.R")
 source("MixtureMG_FA_loadingsandintercepts.R")
-
 set.seed(1)
+
 
 #----------------------------------------------------
 #data import
@@ -393,6 +395,7 @@ djg_mmg_fa <- mixmgfa(data = as.data.frame(data_djg),
         preselect = 10)
 
 clusters <- as.data.frame(round(djg_mmg_fa$MMGFAsolutions[[3]]$clustermemberships, 3))
+rownames(clusters) <- countries
 
 # Choose the best number of clusters ('K_best') based on the BIC_G and CHull scree ratios and the plots. For plots, use 'plot(OutputObject$overview)'.
 # Based on the BIC_G, look for the number of clusters that minimizes the BIC_G or that corresponds to an elbow point in the BIC_G plot (after which the decrease with additional clusters levels off).
@@ -401,9 +404,13 @@ clusters <- as.data.frame(round(djg_mmg_fa$MMGFAsolutions[[3]]$clustermembership
 # The parameter sets are further subdivided in group- and/or cluster-specific parameter sets.
 
 #here we will define the clusters of countries invariant at the scalar level, and subsequently test measurement invariance (configural, metric, scalar) using multigroup confirmatory factor analysis on them
+djg_cluster_a_names <- rownames(clusters)[which(clusters$Cluster_1 == 1)] #vector of numerical IDs representing each country that are part of the same cluster (e.g., c(1, 4, 5, 9, 10))
+djg_cluster_b_names <- rownames(clusters)[which(clusters$Cluster_2 == 1)] #vector of numerical IDs representing each country that are part of the same cluster (e.g., c(2, 3, 7, 11, 12))
+djg_cluster_c_names <- rownames(clusters)[which(clusters$Cluster_3 == 1)] #vector of numerical IDs representing each country that are part of the same cluster (e.g., c(6, 8, 13, 14))
+
 djg_cluster_a <- which(clusters$Cluster_1 == 1) #vector of numerical IDs representing each country that are part of the same cluster (e.g., c(1, 4, 5, 9, 10))
 djg_cluster_b <- which(clusters$Cluster_2 == 1) #vector of numerical IDs representing each country that are part of the same cluster (e.g., c(2, 3, 7, 11, 12))
-djg_cluster_c <- which(clusters$Cluster_3 == 1) #vector of numerical IDs representing each country that are part of the same cluster (e.g., c(6, 8, 13, 14))
+djg_cluster_c <- which(clusters$Cluster_3 == 1) 
 
 djg_clusters_list <- list(cluster_a = djg_cluster_a, 
                           cluster_b = djg_cluster_b, 
@@ -505,14 +512,11 @@ print(results_df)
 # save the results to a CSV file
 write.csv(results_df, "clusters_invariance.csv", row.names = FALSE)
 
-
-
 #----------------
 #T-ILS
 #----------------
 
 #testing for measurement invariance (configural; metric; scalar) using multigroup confirmatory factor analysis
-#in case measurement invariance fails at any level, we resort to mixture multigroup factor analysis to unravel clusters of countries invariant at the scalar level
 data_tils <- subset(data, select = c(country, loneliness_ucla_a, loneliness_ucla_b, loneliness_ucla_c))
 data_tils <- na.omit(data_tils)
 
@@ -521,7 +525,6 @@ tils_config <- cfa(model = tils_model,
                    ordered = TRUE,
                    estimator = "WLSMV",
                    group = "country")
-fitmeasures(tils_config, fit.measures = c("chisq", "df", "pvalue", "cfi", "rmsea", "rmsea.ci.lower", "rmsea.ci.upper"))
 
 tils_metric <- cfa(model = tils_model,
                    data = data_tils,
@@ -540,6 +543,15 @@ tils_scalar <- cfa(model = tils_model,
 fitmeasures(tils_scalar, fit.measures = c("chisq", "df", "pvalue", "cfi", "rmsea", "rmsea.ci.lower", "rmsea.ci.upper"))
 tils_sign_scalar <- lavTestLRT(tils_metric, tils_scalar)
 
+
+# Social support ----------------------------------------------------------
+data_social_support <- subset(data, select = c(social_support_a, social_support_b, social_support_c, social_support_d))
+data_social_support <- na.omit(data_social_support)
+fit_social_support_model <- cfa(model = 'social_suppport =~ social_support_a + social_support_b + social_support_c + social_support_d', 
+                                data = data_social_support,
+                                estimator = "MLR") #Maximum Likelihood (ML) methods work fine with measures answered on a 5-point Likert type scale. Here we apply the Robust Maximum Likelihood (MLR) method as it is robust to the violation of multivariate normality, an assumption that undermines the use of the ML method and that barely holds with such measures.
+social_support_ic <- semTools::reliability(fit_social_support_model)
+
 #----------------------------------------------------
 #CONSTRUCT VALIDITY (Nomological Networks analyses)
 #----------------------------------------------------
@@ -556,9 +568,41 @@ tils_sign_scalar <- lavTestLRT(tils_metric, tils_scalar)
 # We expect negative correlations between the primary measures (djg_emot_mean, tils_mean, loneliness_direct) and the following secondary measures: "social_support_mean", "family_meet_face", "family_meet_tele", "friends_meet_face", "friends_meet_tele", "family_n__1__open", "friends_n__1__open", "social_activities_a", "neighbours", "feelings_happy", "health_general"
 
 #----------------
-#First, we compute the overall score of composite measures (i.e., DJGLS-6, T-ILS, social support)
+#First, we compute the factor score of composite measures (i.e., DJGLS-6, T-ILS, social support)
 #----------------
 # data <- dataOrg
+# Define models for each construct
+models <- list(
+  djg_emot = 'djg_emot =~ loneliness_djg_a + loneliness_djg_b + loneliness_djg_c',
+  djg_social = 'djg_social =~ loneliness_djg_d + loneliness_djg_e + loneliness_djg_f',
+  tils = 'tils =~ loneliness_ucla_a + loneliness_ucla_b + loneliness_ucla_c',
+  social_support = 'social_support =~ social_support_a + social_support_b + social_support_c + social_support_d'
+)
+
+# Manually specify relevant variables for each construct to avoid any mismatches
+relevant_vars_per_construct <- list(
+  djg_emot = c("loneliness_djg_a", "loneliness_djg_b", "loneliness_djg_c"),
+  djg_social = c("loneliness_djg_d", "loneliness_djg_e", "loneliness_djg_f"),
+  tils = c("loneliness_ucla_a", "loneliness_ucla_b", "loneliness_ucla_c"),
+  social_support = c("social_support_a", "social_support_b", "social_support_c", "social_support_d")
+)
+
+# Loop through each construct, fit the CFA model, and store factor scores
+for (construct in names(models)) {
+  # Filter data for current construct, ensuring all specified variables are complete and have variance
+  temp_data <- na.omit(data[relevant_vars_per_construct[[construct]]])
+  if(nrow(temp_data) > 0) {
+    fit <- cfa(models[[construct]], data = temp_data, estimator = "MLR")
+    # Use the original 'data' dataframe for storing factor scores to preserve dataset dimensions
+    # Factor scores will be NA for rows/observations removed by na.omit
+    data[[paste0(construct, "_lv")]] <- NA  # Initialize the column with NAs
+    valid_indices <- which(complete.cases(data[relevant_vars_per_construct[[construct]]]))
+    data[valid_indices, paste0(construct, "_lv")] <- lavPredict(fit, type = "lv")[,1]
+  } else {
+    warning(paste("No valid data for construct:", construct))
+  }
+}
+
 # Add single-indicator constructs to the models and relevant_vars_per_construct lists
 single_indicators <- c("loneliness_direct",  "health_general", "feelings_depr", "feelings_happy", 
                        "family_meet_face", "family_meet_tele", "friends_meet_face", "friends_meet_tele", 
@@ -566,20 +610,20 @@ single_indicators <- c("loneliness_direct",  "health_general", "feelings_depr", 
 
 # For single indicators, define a CFA model for each, assuming a loading of .70
 for (indicator in single_indicators) {
-  models[[indicator]] <- sprintf('%s =~ .7*%s', paste0(indicator, "_lv"), indicator)
-  relevant_vars_per_construct[[indicator]] <- c(indicator)
+  models[indicator] <- sprintf('%s =~ .7*%s', paste0(indicator, "_lv"), indicator)
+  relevant_vars_per_construct[indicator] <- c(indicator)
 }
 
 # Loop through each new single-indicator construct to compute and store factor scores
 for (construct in names(models)) {
   # Filter data for current construct, ensuring specified variables are complete and have variance
-  temp_data <- na.omit(data[relevant_vars_per_construct[[construct]]])
+  temp_data <- na.omit(data[, relevant_vars_per_construct[[construct]]])
+  
   if(nrow(temp_data) > 0) {
-    fit <- cfa(models[[construct]], data = temp_data, estimator = "WLSMV", ordered = TRUE, 
-               fixed.x = FALSE) # Allow estimation of variance for single indicators
+    fit <- cfa(models[[construct]], data = temp_data, estimator = "WLSMV", ordered = TRUE)  # fixed.x = FALSE is not needed for WLSMV
     # Initialize factor score columns for single-indicator constructs with NA
     data[[paste0(construct, "_fs")]] <- NA  
-    valid_indices <- which(complete.cases(data[relevant_vars_per_construct[[construct]]]))
+    valid_indices <- which(complete.cases(data[, relevant_vars_per_construct[[construct]]]))
     # Extract factor scores for valid indices
     data[valid_indices, paste0(construct, "_fs")] <- lavPredict(fit, type = "lv")[,1]
   } else {
@@ -587,17 +631,227 @@ for (construct in names(models)) {
   }
 }
 
-data_social_support <- subset(data, select = c(social_support_a, social_support_b, social_support_c, social_support_d))
-data_social_support <- na.omit(data_social_support)
-fit_social_support_model <- cfa(model = 'social_suppport =~ social_support_a + social_support_b + social_support_c + social_support_d', 
-                                data = data_social_support,
-                                estimator = "MLR") #Maximum Likelihood (ML) methods work fine with measures answered on a 5-point Likert type scale. Here we apply the Robust Maximum Likelihood (MLR) method as it is robust to the violation of multivariate normality, an assumption that undermines the use of the ML method and that barely holds with such measures.
-social_support_ic <- semTools::reliability(fit_social_support_model)
-
-
 #----------------
 #Second, we compute the correlation coefficients for the nomological network, for each country and for each measure
 #----------------
+variableList <- list(
+  fullNet = c("social_support_fs", "health_general_fs", "feelings_depr_fs", "feelings_happy_fs", "family_meet_face_fs", "family_meet_tele_fs", "friends_meet_face_fs", "friends_meet_tele_fs", "family_n__1__open_fs", "friends_n__1__open_fs", "neighbours_fs", "social_activities_a_fs"),
+  deprHappy = c("feelings_depr_fs", "feelings_happy_fs"),
+  socialActivities = c("social_support_fs", "family_meet_face_fs", "family_meet_tele_fs", "friends_meet_face_fs", "friends_meet_tele_fs", "family_n__1__open_fs", "friends_n__1__open_fs", "neighbours_fs", "social_activities_a_fs"),
+  health = c("health_general_fs")
+)
+
+# Initialize a list to store results for each variable set
+results_list <- list()
+
+# Initialize a list to store frequency tables for each variable set
+freq_tables_list <- list()
+
+for (set_name in names(variableList)) {
+  variables <- variableList[[set_name]]
+  
+  # New: Initialize a list for frequency tables of the current variable set
+  freq_tables <- list()
+  
+  # Iterate over the variables to create and store their frequency tables
+  for (variable in variables) {
+    # Store frequency table in the list instead of printing
+    freq_tables[[variable]] <- table(data[[variable]], useNA = "ifany")
+  }
+  
+  # Store the frequency tables list for the current set
+  freq_tables_list[[set_name]] <- freq_tables
+  
+  # Initialize the list for storing network per country for the current variable set
+  nom_network_per_country <- list()
+  for (country in countries) {
+    country_list <- list()
+    for (primary_measure in c("djg_emot_fs", "djg_social_fs", "tils_fs", "loneliness_direct_fs")) {
+      primary_measure_list <- list()
+      
+      for (secondary_measure in variables) {
+        primary_measure_list[[secondary_measure]] <- NA
+      }
+      country_list[[primary_measure]] <- primary_measure_list
+    }
+    nom_network_per_country[[country]] <- country_list
+  }
+  
+  # Computing the correlations for the current variable set
+  for (country in countries) {
+    temp_data <- data[data$country_chr == country, ]
+    
+    for (primary_measure in c("djg_emot_fs", "djg_social_fs", "tils_fs", "loneliness_direct_fs")) {
+      for (secondary_measure in variables) {
+        
+        # Ensure measures are numeric
+        if(is.numeric(temp_data[[primary_measure]]) && is.numeric(temp_data[[secondary_measure]])) {
+          valid_data_indices <- complete.cases(temp_data[, c(primary_measure, secondary_measure)])
+          
+          if (sum(valid_data_indices) > 0) {
+            valid_data <- temp_data[valid_data_indices, ]
+            
+            # Compute Pearson correlation
+            pearson_cor <- cor(valid_data[[primary_measure]], valid_data[[secondary_measure]], use = "complete.obs")
+            
+            # Fit linear model and compute summary
+            linear_model_formula <- as.formula(paste(secondary_measure, "~", primary_measure))
+            linear_model <- lm(linear_model_formula, data = valid_data)
+            summary_linear_model <- summary(linear_model)
+            p_value <- summary_linear_model$coefficients[2, 4]
+            
+            # Store results
+            nom_network_per_country[[country]][[primary_measure]][[secondary_measure]] <- list(p_value = p_value, pearson_cor = pearson_cor)
+          } else {
+            cat(sprintf("Insufficient valid data for primary measure: %s or secondary measure: %s in country: %s\n", primary_measure, secondary_measure, country))
+          }
+        } else {
+          cat(sprintf("Data for primary measure: %s or secondary measure: %s in country: %s is not numeric\n", primary_measure, secondary_measure, country))
+        }
+      }
+    }
+  }
+  
+  # Initialize an empty data frame to store the results for the current variable set
+  results_df <- data.frame(country = character(), 
+                           primary_measure = character(), 
+                           secondary_measure = character(), 
+                           p_value = numeric(), 
+                           pearson_cor = numeric(), 
+                           stringsAsFactors = FALSE)
+  
+  # Loop through each level of the nested list structure for the current variable set
+  for (country in names(nom_network_per_country)) {
+    for (primary_measure in names(nom_network_per_country[[country]])) {
+      for (secondary_measure in names(nom_network_per_country[[country]][[primary_measure]])) {
+        # Extract the list containing p_value and pearson_cor
+        measure_data <- nom_network_per_country[[country]][[primary_measure]][[secondary_measure]]
+        if(is.list(measure_data) && !is.null(measure_data[['p_value']]) && !is.null(measure_data[['pearson_cor']])) {
+          p_value <- measure_data[['p_value']]
+          pearson_cor <- measure_data[['pearson_cor']]
+        } else {
+          p_value <- NA
+          pearson_cor <- NA
+        }
+        
+        # Append to the results data frame
+        results_df <- rbind(results_df, data.frame(country, primary_measure, secondary_measure, pearson_cor, p_value, stringsAsFactors = FALSE))
+      }
+    }
+  }
+  
+  # Apply rounding to all numeric columns in the dataframe
+  results_df <- data.frame(lapply(results_df, function(x) if(is.numeric(x)) round(x, 3) else x))
+  
+  # Store the processed dataframe in the results_list under the current set name
+  results_list[[set_name]] <- results_df
+}
+
+# Assuming results_list is available and contains all results segmented by variableList subsets
+# Adjustments are necessary here to iterate over each segment in results_list if needed
+
+# Define the measures and their expected direction
+measure_sets <- list(
+  djg = c("djg_emot_fs", "djg_social_fs"),
+  tils = "tils_fs",
+  loneliness = "loneliness_direct_fs"
+)
+
+expected_direction <- list(
+  positive = "feelings_depr_fs",
+  negative = c("social_support_mean_fs", "family_meet_face_fs", "family_meet_tele_fs", 
+               "friends_meet_face_fs", "friends_meet_tele_fs", "family_n__1__open_fs", 
+               "friends_n__1__open_fs", "social_activities_a_fs", "neighbours_fs", 
+               "feelings_happy_fs", "health_general_fs")
+)
+
+# Function to determine if correlation is in the expected direction and meets criteria
+is_cor_meeting_criteria <- function(cor, measure, p_value, expected_positive, expected_negative) {
+  if (p_value <= 0.004 && abs(cor) > 0.10) {
+    if (measure %in% expected_positive && cor > 0) {
+      return(TRUE)
+    } else if (measure %in% expected_negative && cor < 0) {
+      return(TRUE)
+    }
+  }
+  return(FALSE)
+}
+
+# Adapt the loop to work with results from each set in variableList
+proportions_list <- list()
+
+for (set_name in names(variableList)) {
+  results_df <- results_list[[set_name]]  # Retrieve the results dataframe for the current set
+  
+  # Following your original analysis but scoped within the current set of variables
+  for (measure_set_name in names(measure_sets)) {
+    measure_group <- measure_sets[[measure_set_name]]
+    
+    filtered_results <- results_df %>%
+      filter(primary_measure %in% measure_group) %>%
+      mutate(meets_criteria = mapply(is_cor_meeting_criteria, pearson_cor, secondary_measure, p_value, 
+                                     MoreArgs = list(expected_positive = expected_direction$positive, 
+                                                     expected_negative = expected_direction$negative)))
+    
+    proportions <- filtered_results %>%
+      group_by(country) %>%
+      summarize(proportion = mean(meets_criteria), .groups = 'drop')
+    
+    proportions_list[[paste(set_name, measure_set_name, sep = "_")]] <- proportions
+  }
+}
+
+# Combine and process all proportions for output
+combined_proportions_df <- bind_rows(lapply(names(proportions_list), function(name) {
+  set_df <- proportions_list[[name]]
+  set_df$measure_set <- name
+  set_df
+}), .id = "measure_set_id")
+
+# Output the combined dataframe to an Excel file
+write.xlsx(combined_proportions_df, "nomologicalNetCorr.xlsx")
+
+final_results <- data.frame(
+  Measure_Set = character(),
+  Proportion_Over_Two_Thirds = numeric(),
+  Count_Over_Two_Thirds = integer(),
+  stringsAsFactors = FALSE
+)
+
+for (name in names(proportions_list)) {
+  current_table <- proportions_list[[name]]
+  
+  proportion_over_two_thirds <- mean(current_table$proportion > 2/3)
+  count_over_two_thirds <- sum(current_table$proportion > 2/3)
+  
+  final_results <- rbind(final_results, data.frame(
+    Measure_Set = name,
+    Proportion_Over_Two_Thirds = proportion_over_two_thirds,
+    Count_Over_Two_Thirds = count_over_two_thirds
+  ))
+}
+
+print(final_results)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#############################
+#############################
+# GRAVEYARD
+#############################
 variables <- c("social_support_fs", "health_general_fs", "feelings_depr_fs", "feelings_happy_fs", "family_meet_face_fs", "family_meet_tele_fs", "friends_meet_face_fs", "friends_meet_tele_fs", "family_n__1__open_fs", "friends_n__1__open_fs", "neighbours_fs", "social_activities_a_fs")
 
 # Iterate over the variables and print their frequency tables
@@ -759,9 +1013,6 @@ proportions_df <- bind_rows(
   .id = "measure_set_id" # This adds an additional column if needed to differentiate rows by their original list element names
 )
 
-proportions_df <- proportions_df %>%
-  select(-measure_set_id, measure_set, country, proportion)
-
 # Print the combined dataframe
 openxlsx::write.xlsx(proportions_df, "nomologicalNetCorr.xlsx")
 
@@ -795,3 +1046,182 @@ for (set_name in names(proportions_list)) {
 # To view the final results
 print(final_results)
 
+
+##########################
+
+# Assuming 'data' and 'countries' are defined elsewhere in your script
+
+variableList <- list(
+  fullNet = c("social_support_fs", "health_general_fs", "feelings_depr_fs", "feelings_happy_fs", "family_meet_face_fs", "family_meet_tele_fs", "friends_meet_face_fs", "friends_meet_tele_fs", "family_n__1__open_fs", "friends_n__1__open_fs", "neighbours_fs", "social_activities_a_fs"),
+  deprHappy = c("feelings_depr_fs", "feelings_happy_fs"),
+  socialActivities = c("social_support_fs", "family_meet_face_fs", "family_meet_tele_fs", "friends_meet_face_fs", "friends_meet_tele_fs", "family_n__1__open_fs", "friends_n__1__open_fs", "neighbours_fs", "social_activities_a_fs"),
+  health = c("health_general_fs")
+)
+
+# Initialize a list to store results for each variable set
+results_list <- list()
+
+# Initialize a list to store frequency tables for each variable set
+freq_tables_list <- list()
+
+for (set_name in names(variableList)) {
+  variables <- variableList[[set_name]]
+  
+  # New: Initialize a list for frequency tables of the current variable set
+  freq_tables <- list()
+  
+  # Iterate over the variables to create and store their frequency tables
+  for (variable in variables) {
+    # Store frequency table in the list instead of printing
+    freq_tables[[variable]] <- table(data[[variable]], useNA = "ifany")
+  }
+  
+  # Store the frequency tables list for the current set
+  freq_tables_list[[set_name]] <- freq_tables
+  
+  # Initialize the list for storing network per country for the current variable set
+  nom_network_per_country <- list()
+  for (country in countries) {
+    country_list <- list()
+    for (primary_measure in c("djg_emot_fs", "djg_social_fs", "tils_fs", "loneliness_direct_fs")) {
+      primary_measure_list <- list()
+      
+      for (secondary_measure in variables) {
+        primary_measure_list[[secondary_measure]] <- NA
+      }
+      country_list[[primary_measure]] <- primary_measure_list
+    }
+    nom_network_per_country[[country]] <- country_list
+  }
+  
+  # Computing the correlations for the current variable set
+  for (country in countries) {
+    temp_data <- data[data$country_chr == country, ]
+    
+    for (primary_measure in c("djg_emot_fs", "djg_social_fs", "tils_fs", "loneliness_direct_fs")) {
+      for (secondary_measure in variables) {
+        
+        # Ensure measures are numeric
+        if(is.numeric(temp_data[[primary_measure]]) && is.numeric(temp_data[[secondary_measure]])) {
+          valid_data_indices <- complete.cases(temp_data[, c(primary_measure, secondary_measure)])
+          
+          if (sum(valid_data_indices) > 0) {
+            valid_data <- temp_data[valid_data_indices, ]
+            
+            # Compute Pearson correlation
+            pearson_cor <- cor(valid_data[[primary_measure]], valid_data[[secondary_measure]], use = "complete.obs")
+            
+            # Fit linear model and compute summary
+            linear_model_formula <- as.formula(paste(secondary_measure, "~", primary_measure))
+            linear_model <- lm(linear_model_formula, data = valid_data)
+            summary_linear_model <- summary(linear_model)
+            p_value <- summary_linear_model$coefficients[2, 4]
+            
+            # Store results
+            nom_network_per_country[[country]][[primary_measure]][[secondary_measure]] <- list(p_value = p_value, pearson_cor = pearson_cor)
+          } else {
+            cat(sprintf("Insufficient valid data for primary measure: %s or secondary measure: %s in country: %s\n", primary_measure, secondary_measure, country))
+          }
+        } else {
+          cat(sprintf("Data for primary measure: %s or secondary measure: %s in country: %s is not numeric\n", primary_measure, secondary_measure, country))
+        }
+      }
+    }
+  }
+  
+  # Initialize an empty data frame to store the results for the current variable set
+  results_df <- data.frame(country = character(), 
+                           primary_measure = character(), 
+                           secondary_measure = character(), 
+                           p_value = numeric(), 
+                           pearson_cor = numeric(), 
+                           stringsAsFactors = FALSE)
+  
+  # Loop through each level of the nested list structure for the current variable set
+  for (country in names(nom_network_per_country)) {
+    for (primary_measure in names(nom_network_per_country[[country]])) {
+      for (secondary_measure in names(nom_network_per_country[[country]][[primary_measure]])) {
+        # Extract the list containing p_value and pearson_cor
+        measure_data <- nom_network_per_country[[country]][[primary_measure]][[secondary_measure]]
+        if(is.list(measure_data) && !is.null(measure_data[['p_value']]) && !is.null(measure_data[['pearson_cor']])) {
+          p_value <- measure_data[['p_value']]
+          pearson_cor <- measure_data[['pearson_cor']]
+        } else {
+          p_value <- NA
+          pearson_cor <- NA
+        }
+        
+        # Append to the results data frame
+        results_df <- rbind(results_df, data.frame(country, primary_measure, secondary_measure, pearson_cor, p_value, stringsAsFactors = FALSE))
+      }
+    }
+  }
+  
+  # Apply rounding to all numeric columns in the dataframe
+  results_df <- data.frame(lapply(results_df, function(x) if(is.numeric(x)) round(x, 3) else x))
+  
+  # Store the processed dataframe in the results_list under the current set name
+  results_list[[set_name]] <- results_df
+}
+
+# Example to view results for 'fullNet'
+print(results_list[["fullNet"]])
+
+# Assuming results_list is available and contains all results segmented by variableList subsets
+# Adjustments are necessary here to iterate over each segment in results_list if needed
+
+# Adapt the loop to work with results from each set in variableList
+proportions_list <- list()
+
+for (set_name in names(variableList)) {
+  results_df <- results_list[[set_name]]  # Retrieve the results dataframe for the current set
+  
+  # Following your original analysis but scoped within the current set of variables
+  for (measure_set_name in names(measure_sets)) {
+    measure_group <- measure_sets[[measure_set_name]]
+    
+    filtered_results <- results_df %>%
+      filter(primary_measure %in% measure_group) %>%
+      mutate(meets_criteria = mapply(is_cor_meeting_criteria, pearson_cor, secondary_measure, p_value, 
+                                     MoreArgs = list(expected_positive = expected_direction$positive, 
+                                                     expected_negative = expected_direction$negative)))
+    
+    proportions <- filtered_results %>%
+      group_by(country) %>%
+      summarize(proportion = mean(meets_criteria), .groups = 'drop')
+    
+    proportions_list[[paste(set_name, measure_set_name, sep = "_")]] <- proportions
+  }
+}
+
+# Combine and process all proportions for output
+combined_proportions_df <- bind_rows(lapply(names(proportions_list), function(name) {
+  set_df <- proportions_list[[name]]
+  set_df$measure_set <- name
+  set_df
+}), .id = "measure_set_id")
+
+# Output the combined dataframe to an Excel file
+write.xlsx(combined_proportions_df, "nomologicalNetCorr.xlsx")
+
+final_results <- data.frame(
+  Measure_Set = character(),
+  Proportion_Over_Two_Thirds = numeric(),
+  Count_Over_Two_Thirds = integer(),
+  stringsAsFactors = FALSE
+)
+
+for (name in names(proportions_list)) {
+  current_table <- proportions_list[[name]]
+  
+  proportion_over_two_thirds <- mean(current_table$proportion > 2/3)
+  count_over_two_thirds <- sum(current_table$proportion > 2/3)
+  
+  final_results <- rbind(final_results, data.frame(
+    Measure_Set = name,
+    Proportion_Over_Two_Thirds = proportion_over_two_thirds,
+    Count_Over_Two_Thirds = count_over_two_thirds
+  ))
+}
+
+print(final_results)
