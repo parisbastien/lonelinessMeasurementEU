@@ -1,29 +1,46 @@
-rm(list = ls())
-# load libraries (and install if not installed already)
+#' ---
+#' title: "Evaluating Loneliness Measurements across the European Union"
+#' author: "Ivan Ropovik"
+#' date: "`r Sys.Date()`"
+#' output:
+#'    html_document:
+#'       toc: true
+#'       toc_float: true
+#'       code_folding: show
+#'       fig_retina: 2
+#' always_allow_html: yes
+#' ---
+#+ setup, include=FALSE
+knitr::opts_chunk$set(echo=FALSE, warning = FALSE, fig.width = 10, fig.height = 10)
+
+#' **This is the analytic output for the exploratory phase**
+#' 
+
+# Libraries and script sourcing -------------------------------------------
+# Load libraries (and install if not installed already)
 list.of.packages <- c("readr", "lubridate", "tidyverse", "psych", "EFA.dimensions", "lavaan", "openxlsx", "semPlot", "semTools", "mixmgfa", "magrittr")
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
 if(length(new.packages)) install.packages(new.packages)
-
-# load required libraries
+# Load required libraries
+#+ include = FALSE
 lapply(list.of.packages, require, quietly = TRUE, warn.conflicts = FALSE, character.only = TRUE)
-
 source("MixtureMG_FA.R")
 source("MixtureMG_FA_intercepts.R")
 source("MixtureMG_FA_loadings.R")
 source("MixtureMG_FA_loadingsandintercepts.R")
 set.seed(1)
 
-#----------------------------------------------------
-#data import
-#----------------------------------------------------
-#change the value to "confirmatory_data.csv" to run the analyses on the confirmatory dataset
+# Function that rounds numeric values in a data frame
+roundDf <- function(df) {
+  as.data.frame(lapply(df, function(x) if(is.numeric(x)) round(x, 2) else x))
+}
+# Data --------------------------------------------------------------------
+# Change the value to "confirmatory_data.csv" to run the analyses on the confirmatory dataset
 filename <- "exploratory_data.csv"
 data <- read_csv(filename)
 
-#----------------------------------------------------
-#variables recoding
-#----------------------------------------------------
-#recoding of the country variable
+# Data wrangling ----------------------------------------------------------
+# Recoding of the country variable
 countries <- c(
   "Austria", "Belgium", "Bulgaria", "Croatia", "Cyprus",
   "Czechia", "Denmark", "Estonia", "Finland", "France",
@@ -34,17 +51,10 @@ countries <- c(
 )
 data$country_chr <- data$country
 
-#variable names
+# Variable names
 variables <- c("loneliness_djg_a", "loneliness_djg_b", "loneliness_djg_c", "loneliness_djg_d", "loneliness_djg_e", "loneliness_djg_f", "loneliness_ucla_a", "loneliness_ucla_b", "loneliness_ucla_c", "social_support_a", "social_support_b", "social_support_c", "social_support_d", "health_general", "feelings_depr", "feelings_happy", "family_meet_face", "family_meet_tele", "friends_meet_face", "friends_meet_tele", "family_n__1__open", "friends_n__1__open", "neighbours", "social_activities_a")
 
-# Loop over each variable to create a frequency table
-for (variable in variables) {
-  cat("Frequency table for", variable, ":\n")
-  print(table(data[[variable]]))
-  cat("\n") # Print a newline for better readability between tables
-}
-
-#Turning 997 (not applicable), 998 (don't know), and 999 (prefer not to say) into NAs
+# Turning 997 (not applicable), 998 (don't know), and 999 (prefer not to say) into NAs
 for (variable in c("loneliness_djg_a", "loneliness_djg_b", "loneliness_djg_c", "loneliness_djg_d", "loneliness_djg_e", "loneliness_djg_f", "loneliness_ucla_a", "loneliness_ucla_b", "loneliness_ucla_c", "social_support_a", "social_support_b", "social_support_c", "social_support_d", "health_general", "feelings_depr", "feelings_happy", "family_meet_face", "family_meet_tele", "friends_meet_face", "friends_meet_tele", "family_n__1__open", "friends_n__1__open", "neighbours", "social_activities_a", "loneliness_direct")){
   data[[variable]] <- ifelse(data[[variable]] == "Prefer not to say", NA, data[[variable]])
   data[[variable]] <- ifelse(data[[variable]] == "Don’t know", NA, data[[variable]])
@@ -85,18 +95,22 @@ for (name in names(data)) {
   data[[name]] <- recode_variable(data[[name]], name)
 }
 
-#recoding of variables so that higher scores indicate greater loneliness (DJGLS-6)
+# Recoding of variables so that higher scores indicate greater loneliness (DJGLS-6)
 for(variable in c("loneliness_djg_d", "loneliness_djg_e", "loneliness_djg_f")){
   data[[variable]] <- ifelse(is.na(data[[variable]]), NA, 2 - data[[variable]])
 }
 
+#'#### Missing data proportion
+#'
 # Missing data ------------------------------------------------------------
-loneliness_data <- data[grep("ucla|djg|direct", names(data), ignore.case = TRUE)]
+#+ include = TRUE
+lonelinessDataEF <- data[grep("ucla|djg|direct", names(data), ignore.case = TRUE)]
 # Calculate and print the percentage of NA values in the subset
-print((sum(is.na(loneliness_data)) / (nrow(loneliness_data) * ncol(loneliness_data))) * 100)
+round((sum(is.na(lonelinessDataEF)) / (nrow(lonelinessDataEF) * ncol(lonelinessDataEF))) * 100, 2)
 
+#'# Descriptive statistics 
+#'
 # Table 1 -----------------------------------------------------------------
-
 # Calculate age
 data$age <- year(Sys.Date()) - data$date_birth_year - (month(Sys.Date()) < data$date_birth_month)
 
@@ -109,105 +123,115 @@ statistics_by_country <- data %>%
   group_by(country) %>%
   summarise(
     n = n(),
-    age_median = median(age, na.rm = TRUE),
+    age_mdn = median(age, na.rm = TRUE),
     age_mean = mean(age, na.rm = TRUE),
     age_sd = sd(age, na.rm = TRUE),
-    loneliness_djgls_6_median = median(loneliness_djgls_6, na.rm = TRUE),
-    loneliness_djgls_6_mean = mean(loneliness_djgls_6, na.rm = TRUE),
-    loneliness_djgls_6_sd = sd(loneliness_djgls_6, na.rm = TRUE),
-    loneliness_t_ils_median = median(loneliness_t_ils, na.rm = TRUE),
-    loneliness_t_ils_mean = mean(loneliness_t_ils, na.rm = TRUE),
-    loneliness_t_ils_sd = sd(loneliness_t_ils, na.rm = TRUE),
-    loneliness_direct_median = median(loneliness_direct, na.rm = TRUE),
-    loneliness_direct_mean = mean(loneliness_direct, na.rm = TRUE),
-    loneliness_direct_sd = sd(loneliness_direct, na.rm = TRUE)
+    djgls_6_mdn = median(loneliness_djgls_6, na.rm = TRUE),
+    djgls_6_mean = mean(loneliness_djgls_6, na.rm = TRUE),
+    djgls_6_sd = sd(loneliness_djgls_6, na.rm = TRUE),
+    t_ils_mdn = median(loneliness_t_ils, na.rm = TRUE),
+    t_ils_mean = mean(loneliness_t_ils, na.rm = TRUE),
+    t_ils_sd = sd(loneliness_t_ils, na.rm = TRUE),
+    direct_mdn = median(loneliness_direct, na.rm = TRUE),
+    direct_mean = mean(loneliness_direct, na.rm = TRUE),
+    direct_sd = sd(loneliness_direct, na.rm = TRUE)
   ) 
 
 statistics_overall <- data %>%
   summarise(
     country = "Overall",
     n = n(),
-    age_median = median(age, na.rm = TRUE),
+    age_mdn = median(age, na.rm = TRUE),
     age_mean = mean(age, na.rm = TRUE),
     age_sd = sd(age, na.rm = TRUE),
-    loneliness_djgls_6_median = median(loneliness_djgls_6, na.rm = TRUE),
-    loneliness_djgls_6_mean = mean(loneliness_djgls_6, na.rm = TRUE),
-    loneliness_djgls_6_sd = sd(loneliness_djgls_6, na.rm = TRUE),
-    loneliness_t_ils_median = median(loneliness_t_ils, na.rm = TRUE),
-    loneliness_t_ils_mean = mean(loneliness_t_ils, na.rm = TRUE),
-    loneliness_t_ils_sd = sd(loneliness_t_ils, na.rm = TRUE),
-    loneliness_direct_median = median(loneliness_direct, na.rm = TRUE),
-    loneliness_direct_mean = mean(loneliness_direct, na.rm = TRUE),
-    loneliness_direct_sd = sd(loneliness_direct, na.rm = TRUE)
+    djgls_6_mdn = median(loneliness_djgls_6, na.rm = TRUE),
+    djgls_6_mean = mean(loneliness_djgls_6, na.rm = TRUE),
+    djgls_6_sd = sd(loneliness_djgls_6, na.rm = TRUE),
+    t_ils_mdn = median(loneliness_t_ils, na.rm = TRUE),
+    t_ils_mean = mean(loneliness_t_ils, na.rm = TRUE),
+    t_ils_sd = sd(loneliness_t_ils, na.rm = TRUE),
+    direct_mdn = median(loneliness_direct, na.rm = TRUE),
+    direct_mean = mean(loneliness_direct, na.rm = TRUE),
+    direct_sd = sd(loneliness_direct, na.rm = TRUE)
   )
 
-statistics_by_country <- rbind(statistics_by_country, statistics_overall)
+statisticsByCountryEF <- rbind(statistics_by_country, statistics_overall)
+roundDf(as.data.frame(statisticsByCountryEF))
 
-#save the results to a CSV file
-write.csv(statistics_by_country, "output_statistics_by_country.csv")
+# Save the results to a CSV file
+write.csv(statisticsByCountryEF, "output_statistics_by_country.csv")
 
-#----------------------------------------------------
-#FACTOR ANALYSES AND INTERNAL CONSISTENCY
-#----------------------------------------------------
-
+# Factor analysis and internal consistency --------------------------------
+#'# Factor analysis and internal consistency
+#'
 #----------------
 #DJGLS-6
 #----------------
-#keeping only the items of interest, and removing rows with missing values
+#'## DJGLS-6
+
+# Keeping only the items of interest, and removing rows with missing values
 data_djg <- subset(data, select = c(loneliness_djg_a, loneliness_djg_b, loneliness_djg_c, loneliness_djg_d, loneliness_djg_e, loneliness_djg_f, w_country_04))
 data_djg <- na.omit(data_djg)
 
+# 2F Model
 djg_model_2F <- 
 'emotionalLoneliness =~ loneliness_djg_a + loneliness_djg_b + loneliness_djg_c
 socialLoneliness =~ loneliness_djg_d + loneliness_djg_e + loneliness_djg_f
 emotionalLoneliness ~~ socialLoneliness'
 
-#confirmatory factor analysis across all EU member states, on the a-priori factor structure
+# Confirmatory factor analysis across all EU member states, on the a-priori factor structure
 fit_djg_model <- cfa(model = djg_model_2F, 
                      data = data_djg,
                      ordered = TRUE,
                      estimator = "WLSMV",
                      sampling.weights = "w_country_04")
-summary(fit_djg_model, standardized = TRUE)
-fitmeasures(fit_djg_model, fit.measures = c("chisq", "df", "pvalue", "cfi", "rmsea", "rmsea.ci.lower", "rmsea.ci.upper"))
+#'### 2-factor model summary
+(djg2fModelEF <- summary(fit_djg_model, standardized = TRUE))
+#'### 2-factor model fit measures
+(djg2fFitEF <- fitmeasures(fit_djg_model, fit.measures = c("chisq", "df", "pvalue", "cfi", "rmsea", "rmsea.ci.lower", "rmsea.ci.upper")))
 
-#parallel analysis
+#'### Parallel analysis
 djg_paralell <- fa.parallel(x = data_djg,
                             cor = "poly") #3-point Likert-type measures are best handled with polychoric correlations
 
-#Empirical Kaiser Criterion
-djg_empkc <- EMPKC(data = data_djg,
-                   corkind = "polychoric")
+# Empirical Kaiser Criterion
+#+ include=FALSE
+djg_empkc <- EMPKC(data = data_djg, corkind = "polychoric", verbose = FALSE)
 
-
-#we will edit the following model after identifying the optimal factor structure, balancing theoretical parsimony with model fit
 djg_model <- 'loneliness =~ loneliness_djg_a + loneliness_djg_b + loneliness_djg_c + loneliness_djg_d + loneliness_djg_e + loneliness_djg_f'
-#we will edit the following value after identifying the optimal factor structure, balancing theoretical parsimony with model fit
 djg_factors <- 2
 
-#confirmatory factor analysis across all EU member states
+# Confirmatory factor analysis across all EU member states
+#+ include=TRUE
 fit_djg_modelUni <- cfa(model = djg_model, 
                      data = data_djg,
                      ordered = TRUE,
                      estimator = "WLSMV",
                      sampling.weights = "w_country_04")
+#'### 1-factor model summary
 summary(fit_djg_modelUni, standardized = TRUE)
+#'### 1-factor model fit measures
 fitmeasures(fit_djg_modelUni, fit.measures = c("chisq", "df", "pvalue", "cfi", "rmsea", "rmsea.ci.lower", "rmsea.ci.upper"))
 
-#internal consistency across all EU member states
-ic_djg <- semTools::compRelSEM(fit_djg_model)
-ic_djgUni <- semTools::compRelSEM(fit_djg_modelUni)
+#'### Internal consistency across all EU member states
+#'
+#'#### For the 2-factor model
+(icDjgEF <- semTools::compRelSEM(fit_djg_model))
+#'#### For the 1-factor model
+(icDjgUniEF <- semTools::compRelSEM(fit_djg_modelUni))
+#'#### LR test
 lavTestLRT(fit_djg_model, fit_djg_modelUni)
 
-#confirmatory factor analysis and internal consistency for each member state separately
-djg_per_state <- list()
+#'### CFA and internal consistency separately for countries
+#+ include=FALSE
+djgPerCountryEF <- list()
 for(country in countries){
-  #keeping participants who belong to the country of interest, the items of interest, and removing rows with missing values
+  # Keeping participants who belong to the country of interest, the items of interest, and removing rows with missing values
   temp_data <- data[data$country_chr == country, ]
   temp_data <- subset(temp_data, select = c(loneliness_djg_a, loneliness_djg_b, loneliness_djg_c, loneliness_djg_d, loneliness_djg_e, loneliness_djg_f))
   temp_data <- na.omit(temp_data)
   
-  #confirmatory factor analysis
+  # CFA
   temp_fit <- cfa(model = djg_model_2F, 
                   data = temp_data,
                   ordered = TRUE,
@@ -216,109 +240,119 @@ for(country in countries){
   temp_paralell <- fa.parallel(x = data_djg, plot = FALSE,
                               cor = "poly")$nfact #3-point Likert-type measures are best handled with polychoric correlations
   
-  #Empirical Kaiser Criterion
-  temp_empkc <- EMPKC(data = data_djg, verbose = FALSE,
-                     corkind = "polychoric")$NfactorsEMPKC
+  # Empirical Kaiser Criterion
+  temp_empkc <- EMPKC(data = data_djg, verbose = FALSE, corkind = "polychoric")$NfactorsEMPKC
   
   
-  #internal consistency
+  # Internal consistency
   temp_ic <- semTools::compRelSEM(temp_fit)
   
-  #adding the results in a list
+  # Adding the results in a list
   temp_list <- list(cfa=fitmeasures(temp_fit, fit.measures = c("chisq", "df", "pvalue", "cfi", "rmsea", "rmsea.ci.lower", "rmsea.ci.upper")), paralell = temp_paralell, KC = temp_empkc, ic=temp_ic)
-  djg_per_state[[country]] <- temp_list
+  djgPerCountryEF[[country]] <- temp_list
 }
 
-#internal consistency descriptives
-describe(unlist(lapply(djg_per_state, function(x)x$ic[1])))
-describe(unlist(lapply(djg_per_state, function(x)x$ic[2])))
+#'#### Across-countries internal consistency descriptives
+#+ include=TRUE
+#'#### For emotional loneliness
+(icDjgEmotCountryDescEF <- describe(unlist(lapply(djgPerCountryEF, function(x)x$ic[1]))))
+#'#### For social loneliness
+(icDjgSocCountryDescEF <- describe(unlist(lapply(djgPerCountryEF, function(x)x$ic[2]))))
 
-djg_per_state
+#'### Detailed per-country results
+djgPerCountryEF
 
+#'## T-ILS
+#'
 #----------------
 #T-ILS
 #----------------
-#keeping only the items of interest, and removing rows with missing values
+# Keeping only the items of interest, and removing rows with missing values
 data_tils <-subset(data, select = c(loneliness_ucla_a, loneliness_ucla_b, loneliness_ucla_c, w_country_04))
 data_tils <- na.omit(data_tils)
 
-#As the T-ILS is a three-item scale, only a one factor model can fit the data
-#As a consequence, we don't run parallel analysis and empirical kaiser criterion extraction techniques on the T-ILS, and directly run the confirmatory factor analysis on the a-priori factor structure
+# As the T-ILS is a three-item scale, only a one factor model can fit the data
+# As a consequence, we don't run parallel analysis and empirical kaiser criterion extraction techniques on the T-ILS, and directly run the confirmatory factor analysis on the a-priori factor structure
 tils_model <- 'loneliness =~ loneliness_ucla_a + loneliness_ucla_b + loneliness_ucla_c'
 
-#confirmatory factor analysis across all EU member states, on the a-priori factor structure
+# Confirmatory factor analysis across all EU member states, on the a-priori factor structure
 fit_tils_model <- cfa(model = tils_model,
                       data = data_tils,
                       ordered = TRUE,
                       estimator = "WLSMV",
                       sampling.weights = "w_country_04")
-summary(fit_tils_model, standardized = T)
+#'### Model summary
+(tilsModelEF <- summary(fit_tils_model, standardized = T))
 
-#internal consistency across all EU member states
-ic_tils <- semTools::compRelSEM(fit_tils_model)
+#'### Internal consistency across all EU member states
+(ictilsEF <- semTools::compRelSEM(fit_tils_model))
 
-#confirmatory factor analysis and internal consistency for each member state separately
-tils_per_state <- list()
+# Confirmatory factor analysis and internal consistency for each member state separately
+tilsPerCountryEF <- list()
 for (country in countries){
-  #keeping participants who belong to the country of interest, the items of interest, and removing rows with missing values
+  # Keeping participants who belong to the country of interest, the items of interest, and removing rows with missing values
   temp_data <- data[data$country_chr == country, ]
   temp_data <- subset(temp_data, select = c(loneliness_ucla_a, loneliness_ucla_b, loneliness_ucla_c))
   temp_data <- na.omit(temp_data)
   
-  #confirmatory factor analysis
+  # Confirmatory factor analysis
   temp_fit <- cfa(model = tils_model, 
                   data = temp_data,
                   ordered = TRUE,
                   estimator = "WLSMV")
   
-  #internal consistency
+  # Internal consistency
   temp_ic <- semTools::compRelSEM(temp_fit)
   
-  #adding the results in a list
+  # Adding the results in a list
   temp_list <- list(cfa=parameterestimates(temp_fit, standardized = T)[1:3, c(3, 11)], ic=temp_ic)
-  tils_per_state[[country]] <- temp_list
+  tilsPerCountryEF[[country]] <- temp_list
 }
 
-tils_per_state
-describe(unlist(lapply(tils_per_state, function(x)x$ic)))
+#'#### Across-countries internal consistency descriptives
+describe(unlist(lapply(tilsPerCountryEF, function(x)x$ic)))
 
+#'### Detailed per-country results
+tilsPerCountryEF
+
+#'## Summary of CFA and internal consistency analyses
+#'
 # Table 2 -----------------------------------------------------------------
-
-# Initialize vectors to store extracted data for djg_per_state
-countries <- names(djg_per_state)
+# Initialize vectors to store extracted data for djgPerCountryEF
+countries <- names(tilsPerCountryEF)
 chisq_djg <- numeric(length(countries))
 cfi_djg <- numeric(length(countries))
 rmsea_djg <- numeric(length(countries))
 omega_emotional_djg <- numeric(length(countries))
 omega_social_djg <- numeric(length(countries))
 
-# Initialize vectors to store extracted data for tils_per_state
+# Initialize vectors to store extracted data for tilsPerCountryEF
 factor_loading_a <- numeric(length(countries))
 factor_loading_b <- numeric(length(countries))
 factor_loading_c <- numeric(length(countries))
 omega_tils <- numeric(length(countries))
 
-# Extract data for djg_per_state
+# Extract data for djgPerCountryEF
 for (i in seq_along(countries)) {
   country <- countries[i]
-  chisq_djg[i] <- djg_per_state[[country]]$cfa["chisq"]
-  cfi_djg[i] <- djg_per_state[[country]]$cfa["cfi"]
-  rmsea_djg[i] <- djg_per_state[[country]]$cfa["rmsea"]
-  omega_emotional_djg[i] <- djg_per_state[[country]]$ic["emotionalLoneliness"]
-  omega_social_djg[i] <- djg_per_state[[country]]$ic["socialLoneliness"]
+  chisq_djg[i] <- djgPerCountryEF[[country]]$cfa["chisq"]
+  cfi_djg[i] <- djgPerCountryEF[[country]]$cfa["cfi"]
+  rmsea_djg[i] <- djgPerCountryEF[[country]]$cfa["rmsea"]
+  omega_emotional_djg[i] <- djgPerCountryEF[[country]]$ic["emotionalLoneliness"]
+  omega_social_djg[i] <- djgPerCountryEF[[country]]$ic["socialLoneliness"]
 }
 
-# Extract data for tils_per_state
+# Extract data for tilsPerCountryEF
 for (i in seq_along(countries)) {
   country <- countries[i]
-  factor_loading_a[i] <- tils_per_state[[country]]$cfa$std.all[tils_per_state[[country]]$cfa$rhs == "loneliness_ucla_a"]
-  factor_loading_b[i] <- tils_per_state[[country]]$cfa$std.all[tils_per_state[[country]]$cfa$rhs == "loneliness_ucla_b"]
-  factor_loading_c[i] <- tils_per_state[[country]]$cfa$std.all[tils_per_state[[country]]$cfa$rhs == "loneliness_ucla_c"]
-  omega_tils[i] <- tils_per_state[[country]]$ic["loneliness"]
+  factor_loading_a[i] <- tilsPerCountryEF[[country]]$cfa$std.all[tilsPerCountryEF[[country]]$cfa$rhs == "loneliness_ucla_a"]
+  factor_loading_b[i] <- tilsPerCountryEF[[country]]$cfa$std.all[tilsPerCountryEF[[country]]$cfa$rhs == "loneliness_ucla_b"]
+  factor_loading_c[i] <- tilsPerCountryEF[[country]]$cfa$std.all[tilsPerCountryEF[[country]]$cfa$rhs == "loneliness_ucla_c"]
+  omega_tils[i] <- tilsPerCountryEF[[country]]$ic["loneliness"]
 }
 
 # Create a dataframe to fill in the Excel table
-df <- data.frame(
+summaryFitIC <- data.frame(
   Country = countries,
   Chisq_DJG = chisq_djg,
   CFI_DJG = cfi_djg,
@@ -330,54 +364,62 @@ df <- data.frame(
   Factor_Loading_C = factor_loading_c,
   Omega_TILS = omega_tils
 )
+roundDf(summaryFitIC)
 
-#save the results to a CSV file
-write.csv(df, "model_fit_by_country.csv")
+# Save the results to a CSV file
+write.csv(summaryFitIC, "model_fit_by_country.csv")
 
 
-#----------------------------------------------------
-#MEASUREMENT INVARIANCE
-#----------------------------------------------------
+#'# Measurement invariance
+#'
+# Measurement invariance --------------------------------------------------
+
 fitMeasuresSelection <- c("chisq", "df", "pvalue", "cfi", "rmsea", "rmsea.ci.lower", "rmsea.ci.upper")
+
+#'## DJGLS-6
 #----------------
 #DJGLS-6
 #----------------
 
-#testing for measurement invariance (configural; metric; scalar) using multigroup confirmatory factor analysis
-#in case measurement invariance fails at any level, we resort to mixture multigroup factor analysis to unravel clusters of countries invariant at the scalar level
+# Testing for measurement invariance (configural; metric; scalar) using multigroup confirmatory factor analysis
+# In case measurement invariance fails at any level, we resort to mixture multigroup factor analysis to unravel clusters of countries invariant at the scalar level
 data_djg <- subset(data, select = c(country, gender, age_class, loneliness_djg_a, loneliness_djg_b, loneliness_djg_c, loneliness_djg_d, loneliness_djg_e, loneliness_djg_f))
 data_djg <- na.omit(data_djg)
 
+#'### Configural invariance
 djg_config <- cfa(model = djg_model_2F,
                   data = data_djg,
                   ordered = TRUE,
                   estimator = "WLSMV",
                   group = "country")
-fitmeasures(djg_config, fit.measures = fitMeasuresSelection)
+(djgInvConfFit <- fitmeasures(djg_config, fit.measures = fitMeasuresSelection))
 
+#'### Metric invariance
 djg_metric <- cfa(model = djg_model_2F,
                   data = data_djg,
                   ordered = TRUE,
                   estimator = "WLSMV",
                   group = "country",
                   group.equal = c("loadings"))
-fitmeasures(djg_metric, fit.measures = fitMeasuresSelection)
-djg_sign_metric <- lavTestLRT(djg_config,djg_metric)
+(djgInvMetrFit <- fitmeasures(djg_metric, fit.measures = fitMeasuresSelection))
+(djg_sign_metric <- lavTestLRT(djg_config,djg_metric))
 
+#'### Scalar invariance
 djg_scalar <- cfa(model = djg_model_2F,
                   data = data_djg,
                   ordered = TRUE,
                   estimator = "WLSMV",
                   group = "country",
                   group.equal = c("loadings", "intercepts"))
-fitmeasures(djg_scalar, fit.measures = fitMeasuresSelection)
-djg_sign_scalar <- lavTestLRT(djg_metric,djg_scalar)
+(djgInvScalFit <- fitmeasures(djg_scalar, fit.measures = fitMeasuresSelection))
+(djg_sign_scalar <- lavTestLRT(djg_metric,djg_scalar))
 
 #recode the coutry names to codes
 data_djg[[1]] <- as.numeric(as.factor(data_djg[[1]]))
 
 #The code below is to be run in case measurement invariance failed at any of three levels above
-djg_mmg_fa <- mixmgfa(data = as.data.frame(data_djg[,-c(2,3)]),
+#+ include=FALSE
+djgMmgEF <- mixmgfa(data = as.data.frame(data_djg[,-c(2,3)]),
         cluster.spec = c("loadings", "intercepts"),
         nsclust = c(1,6), #invariant at the scalar level
         nfactors = djg_factors, #number of factors to be determined following the factor analyses // mixmgfa is suppposed to identify the appropriate factor structure automatically (to be confirmed by asking Kim De Roover)
@@ -387,7 +429,7 @@ djg_mmg_fa <- mixmgfa(data = as.data.frame(data_djg[,-c(2,3)]),
         #rotation = "oblimin", #parameter to add in case nfactors = 2
         preselect = 10)
 
-clusters <- as.data.frame(round(djg_mmg_fa$MMGFAsolutions[[3]]$clustermemberships, 3))
+clusters <- as.data.frame(round(djgMmgEF$MMGFAsolutions[[3]]$clustermemberships, 3))
 rownames(clusters) <- countries
 
 # Choose the best number of clusters ('K_best') based on the BIC_G and CHull scree ratios and the plots. For plots, use 'plot(OutputObject$overview)'.
@@ -396,7 +438,7 @@ rownames(clusters) <- countries
 # Access the corresponding cluster memberships and parameter estimates by using OutputObject$MMGFAsolutions[[K_best]]$clustermemberships and, for example, OutputObject$MMGFAsolutions[[K_best]]$clusterspecific.loadings.
 # The parameter sets are further subdivided in group- and/or cluster-specific parameter sets.
 
-#here we will define the clusters of countries invariant at the scalar level, and subsequently test measurement invariance (configural, metric, scalar) using multigroup confirmatory factor analysis on them
+# Here we define the clusters of countries invariant at the scalar level, and subsequently test measurement invariance (configural, metric, scalar) using multigroup confirmatory factor analysis on them
 djg_cluster_a_names <- rownames(clusters)[which(clusters$Cluster_1 == 1)] #vector of numerical IDs representing each country that are part of the same cluster (e.g., c(1, 4, 5, 9, 10))
 djg_cluster_b_names <- rownames(clusters)[which(clusters$Cluster_2 == 1)] #vector of numerical IDs representing each country that are part of the same cluster (e.g., c(2, 3, 7, 11, 12))
 djg_cluster_c_names <- rownames(clusters)[which(clusters$Cluster_3 == 1)] #vector of numerical IDs representing each country that are part of the same cluster (e.g., c(6, 8, 13, 14))
@@ -410,6 +452,7 @@ djg_clusters_list <- list(cluster_a = djg_cluster_a,
                           cluster_c = djg_cluster_c)
 
 djg_clusters_invariance <- list()
+
 # Loop through each cluster in the list
 for (i in seq_along(djg_clusters_list)) {
   cluster_name <- names(djg_clusters_list)[i]
@@ -446,7 +489,7 @@ for (i in seq_along(djg_clusters_list)) {
 }
 
 # Initialize a dataframe to store the results
-mmg_results <- data.frame(clusterID = character(),
+djgMmgResultsEF <- data.frame(clusterID = character(),
                          chisq_configural = character(),
                          cfi_configural = numeric(),
                          rmsea_configural = numeric(),
@@ -486,7 +529,7 @@ for (cluster in clusters) {
   chisq_scalar_diff <- format_chisq(scalar_sign["chisq"], scalar_sign["df"], scalar_sign["p"])
   
   # Append the row to the dataframe
-  mmg_results <- rbind(mmg_results, data.frame(clusterID = cluster,
+  djgMmgResultsEF <- rbind(djgMmgResultsEF, data.frame(clusterID = cluster,
                                              chisq_configural = chisq_configural,
                                              cfi_configural = cfi_configural,
                                              rmsea_configural = rmsea_configural,
@@ -497,14 +540,16 @@ for (cluster in clusters) {
                                              stringsAsFactors = FALSE))
 }
 
-# View the results
-print(mmg_results)
+#+ include=TRUE
+#'### Mixture multigroup factor analysis
+print(djgMmgResultsEF)
 
-# save the results to a CSV file
-write.csv(mmg_results, "clusters_invariance.csv", row.names = FALSE)
+# Save the results to a CSV file
+write.csv(djgMmgResultsEF, "clusters_invariance.csv", row.names = FALSE)
 
+#'### Within-cluster invariance for gender, age
+#'
 # Within-cluster invariance w.r.t. gender and age -------------------------
-# Assuming data_djg, djg_model_2F, and the cluster vectors are defined
 data_djg <- data_djg %>%
   mutate(gender = ifelse(gender %in% c("Male", "Female"), gender, NA))
 
@@ -522,7 +567,7 @@ test_invariance_by_cluster <- function(grouping_var, cluster_countries, data, mo
           group = grouping_var,
           group.equal = group_equal)
     }, error = function(e) {
-      NA  # Return NA in case of an error
+      NA
     })
   }
   
@@ -563,7 +608,7 @@ clusters <- list(
 )
 
 # Run invariance tests for each cluster and grouping variable
-djg_clusters_invariance <- list()
+djgClustersInvarianceResults <- list()
 for (cluster_name in names(clusters)) {
   cluster_countries <- clusters[[cluster_name]]
   cluster_results <- list()
@@ -571,18 +616,22 @@ for (cluster_name in names(clusters)) {
     result <- test_invariance_by_cluster(grouping_var = var, cluster_countries = cluster_countries, data = data_djg, model = djg_model_2F)
     cluster_results[[var]] <- result
   }
-  djg_clusters_invariance[[cluster_name]] <- cluster_results
+  djgClustersInvarianceResults[[cluster_name]] <- cluster_results
 }
 
 # Naming the inner lists
 for (cluster_name in names(clusters)) {
   for (var in c("gender", "age_class")) {
     name <- paste(cluster_name, var, sep = "_")
-    djg_clusters_invariance[[cluster_name]][[var]] <- setNames(djg_clusters_invariance[[cluster_name]][[var]], c("configural", "metric", "scalar"))
+    djgClustersInvarianceResults[[cluster_name]][[var]] <- setNames(djgClustersInvarianceResults[[cluster_name]][[var]], c("configural", "metric", "scalar"))
   }
 }
-djg_clusters_invariance
 
+#'### DJGLS-6 invariance results for gender, age
+djgClustersInvarianceResults
+
+#'## T-ILS
+#'
 #----------------
 #T-ILS
 #----------------
@@ -625,26 +674,27 @@ test_invariance <- function(grouping_var, data, model) {
 group_vars <- c("country", "gender", "age_class")
 
 # Run invariance tests for all group variables and store results in a nested list
-tils_invariance <- lapply(group_vars, function(var) {
+tilsInvarianceResults <- lapply(group_vars, function(var) {
   test_invariance(grouping_var = var, data = data_tils, model = tils_model)
 })
 
 # Naming the list for clarity
-names(tils_invariance) <- group_vars
-tils_invariance
+names(tilsInvarianceResults) <- group_vars
+
+#'### T-ILS invariance results for county, gender, and age
+tilsInvarianceResults
 
 # Social support ----------------------------------------------------------
 data_social_support <- subset(data, select = c(social_support_a, social_support_b, social_support_c, social_support_d))
 data_social_support <- na.omit(data_social_support)
-fit_social_support_model <- cfa(model = 'social_suppport =~ social_support_a + social_support_b + social_support_c + social_support_d', 
+fit_social_support_modelEF <- cfa(model = 'social_suppport =~ social_support_a + social_support_b + social_support_c + social_support_d', 
                                 data = data_social_support,
-                                estimator = "MLR") #Maximum Likelihood (ML) methods work fine with measures answered on a 5-point Likert type scale. Here we apply the Robust Maximum Likelihood (MLR) method as it is robust to the violation of multivariate normality, an assumption that undermines the use of the ML method and that barely holds with such measures.
-social_support_ic <- semTools::reliability(fit_social_support_model)
+                                estimator = "MLR") # Maximum Likelihood (ML) methods work fine with measures answered on a 5-point Likert type scale. Here we apply the Robust Maximum Likelihood (MLR) method as it is robust to the violation of multivariate normality, an assumption that undermines the use of the ML method and that barely holds with such measures.
+social_support_ic <- semTools::reliability(fit_social_support_modelEF)
 
-#----------------------------------------------------
-#CONSTRUCT VALIDITY (Nomological Networks analyses)
-#----------------------------------------------------
-
+#'# Construct validity
+#'
+# Construct validity ------------------------------------------------------
 # djg_emot_mean, djg_social_mean - higher score, more lonely
 # tils_mean - higher score, more lonely
 # loneliness_direct - higher score, more lonely
@@ -656,9 +706,7 @@ social_support_ic <- semTools::reliability(fit_social_support_model)
 # We expect positive correlations between the primary measures (djg_emot_mean, tils_mean, loneliness_direct) and feelings_depr
 # We expect negative correlations between the primary measures (djg_emot_mean, tils_mean, loneliness_direct) and the following secondary measures: "social_support_mean", "family_meet_face", "family_meet_tele", "friends_meet_face", "friends_meet_tele", "family_n__1__open", "friends_n__1__open", "social_activities_a", "neighbours", "feelings_happy", "health_general"
 
-#----------------
-#First, we compute the factor score of composite measures (i.e., DJGLS-6, T-ILS, social support)
-#----------------
+# Factor score estimation -------------------------------------------------
 # data <- dataOrg
 # Define models for each construct
 models <- list(
@@ -682,9 +730,8 @@ for (construct in names(models)) {
   temp_data <- na.omit(data[relevant_vars_per_construct[[construct]]])
   if(nrow(temp_data) > 0) {
     fit <- cfa(models[[construct]], data = temp_data, estimator = "MLR")
-    # Use the original 'data' dataframe for storing factor scores to preserve dataset dimensions
     # Factor scores will be NA for rows/observations removed by na.omit
-    data[[paste0(construct, "_lv")]] <- NA  # Initialize the column with NAs
+    data[[paste0(construct, "_lv")]] <- NA
     valid_indices <- which(complete.cases(data[relevant_vars_per_construct[[construct]]]))
     data[valid_indices, paste0(construct, "_lv")] <- lavPredict(fit, type = "lv")[,1]
   } else {
@@ -709,7 +756,7 @@ for (construct in names(models)) {
   temp_data <- na.omit(data[, relevant_vars_per_construct[[construct]]])
   
   if(nrow(temp_data) > 0) {
-    fit <- cfa(models[[construct]], data = temp_data, estimator = "WLSMV", ordered = TRUE)  # fixed.x = FALSE is not needed for WLSMV
+    fit <- cfa(models[[construct]], data = temp_data, estimator = "WLSMV", ordered = TRUE)
     # Initialize factor score columns for single-indicator constructs with NA
     data[[paste0(construct, "_fs")]] <- NA  
     valid_indices <- which(complete.cases(data[, relevant_vars_per_construct[[construct]]]))
@@ -720,9 +767,7 @@ for (construct in names(models)) {
   }
 }
 
-#----------------
-#Second, we compute the correlation coefficients for the nomological network, for each country and for each measure
-#----------------
+# Nomological nets --------------------------------------------------------
 variableList <- list(
   fullNet = c("social_support_fs", "health_general_fs", "feelings_depr_fs", "feelings_happy_fs", "family_meet_face_fs", "family_meet_tele_fs", "friends_meet_face_fs", "friends_meet_tele_fs", "family_n__1__open_fs", "friends_n__1__open_fs", "neighbours_fs", "social_activities_a_fs"),
   deprHappy = c("feelings_depr_fs", "feelings_happy_fs"),
@@ -739,7 +784,7 @@ freq_tables_list <- list()
 for (set_name in names(variableList)) {
   variables <- variableList[[set_name]]
   
-  # New: Initialize a list for frequency tables of the current variable set
+  # Initialize a list for frequency tables of the current variable set
   freq_tables <- list()
   
   # Iterate over the variables to create and store their frequency tables
@@ -836,9 +881,6 @@ for (set_name in names(variableList)) {
   results_list[[set_name]] <- results_df
 }
 
-# Assuming results_list is available and contains all results segmented by variableList subsets
-# Adjustments are necessary here to iterate over each segment in results_list if needed
-
 # Define the measures and their expected direction
 measure_sets <- list(
   djg = c("djg_emot_fs", "djg_social_fs"),
@@ -920,13 +962,25 @@ for (name in names(proportions_list)) {
   ))
 }
 
-print(final_results)
+#'## Nomological net proportions per country
+#'
+#' Separately for all countries, shows the proportion of correlation effects that were significant, |r|>.10, and in the expected direction
+#' 
+#' fullNet = all constructs; deprHappy = depression and happiness, socialActivities = social support, in-person and remote contact with family, friends, neighbours, closeness to family and friends, social activities; health = self-reported general health.
+(nomologicalNetPropsPerCountryEF <- roundDf(as.data.frame(combined_proportions_df[,c(-1)])))
 
+#'## Nomological net proportions overall
+#'
+#' Shows for each nomological network (loneliness instrument + relevant variables), for how many countries was the number of relationships in the nomological network over 2/3.
+nomologicalNetProportionsEF <- final_results
+roundDf(nomologicalNetProportionsEF)
 
+# Save nomological net correlation - full results
+nomologicalNetCorrsEF <- results_list
 
 # By-country heatmaps for nomological nets --------------------------------
 # Initialize a list to hold the correlation matrices for each country
-cor_matrices <- list()
+corMatricesEF <- list()
 
 for (country in countries) {
   # Filter data for the current country
@@ -951,28 +1005,27 @@ for (country in countries) {
   }
   
   # Add the correlation matrix to the list, named by country
-  cor_matrices[[country]] <- cor_matrix
+  corMatricesEF[[country]] <- cor_matrix
 }
 
 # The result is a list of correlation matrices, one for each country
-cor_matrices
-
-
-
+#'## Per-country correlation matrices
+corMatricesEF
 
 # Define the custom labels for primary and secondary measures
 primary_labels <- setNames(c("DJGLS-6 emotion", "DJGLS-6 social", "T-ILS", "Single-item"),
-                           unique(unlist(lapply(cor_matrices, rownames))))
+                           unique(unlist(lapply(corMatricesEF, rownames))))
 secondary_labels <- setNames(c("Social support", "Health", "Feeling depressed", "Feeling happy", 
                                "Family meet in-person", "Family meet remote", 
                                "Friends meet in-person", "Friends meet remote", 
                                "Family closeness", "Friends closeness", 
                                "Neighbours contact", "Social activities"),
-                             unique(unlist(lapply(cor_matrices, colnames))))
+                             unique(unlist(lapply(corMatricesEF, colnames))))
 
+#'## Heatmaps for the per-country correlation matrices
 # Loop through the list of correlation matrices and create a heatmap for each
-for (country in names(cor_matrices)) {
-  cor_matrix <- cor_matrices[[country]]
+for (country in names(corMatricesEF)) {
+  cor_matrix <- corMatricesEF[[country]]
   
   # Apply the custom labels
   rownames(cor_matrix) <- primary_labels[rownames(cor_matrix)]
@@ -1000,15 +1053,20 @@ for (country in names(cor_matrices)) {
 }
 
 # Correlations of loneliness measures -------------------------------------
+
+#'## Correlations of loneliness measures
+#'
+#'### Overall
+
 # Overall correlation matrix
-(overall_cor <- round(cor(data[, c("djg_emot_fs", "djg_social_fs", "tils_fs", "loneliness_direct_fs")], 
+(overallCorrEF <- round(cor(data[, c("djg_emot_fs", "djg_social_fs", "tils_fs", "loneliness_direct_fs")], 
                    use = "complete.obs"),2))
 
 # Initialize a list to store correlation matrices for each country
-country_cor_list <- list()
+corMatricesCountryEF <- list()
 
 # Initialize a vector to store average correlations for each country
-avg_cor_by_country <- numeric()
+avgCorCountryEF <- numeric()
 
 # Calculate correlation matrix for each country
 for (country in countries) {
@@ -1020,34 +1078,22 @@ for (country in countries) {
                     use = "complete.obs"), 2)
   
   # Store the matrix in the list
-  country_cor_list[[country]] <- cor_matrix
+  corMatricesCountryEF[[country]] <- cor_matrix
   
   # Compute and store the average correlation
   avg_cor <- round(mean(cor_matrix[lower.tri(cor_matrix)], na.rm = TRUE), 2)
-  avg_cor_by_country[country] <- avg_cor
+  avgCorCountryEF[country] <- avg_cor
 }
 
+#'### Per-country
+#'
 # Print the correlation matrices for each country
-country_cor_list
+corMatricesCountryEF
 
+#'### Per-country average correlation among loneliness measures
+#'
 # Print the average correlation for each country
-avg_cor_by_country
+avgCorCountryEF
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#############################
-# GRAVEYARD
-#############################
+#'#### Session info
+sessionInfo()
