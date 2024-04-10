@@ -18,7 +18,7 @@ knitr::opts_chunk$set(echo=FALSE, warning = FALSE, fig.width = 10, fig.height = 
 
 # Libraries and script sourcing -------------------------------------------
 # Load libraries (and install if not installed already)
-list.of.packages <- c("readr", "lubridate", "tidyverse", "psych", "EFA.dimensions", "lavaan", "openxlsx", "semPlot", "semTools", "mixmgfa", "magrittr")
+list.of.packages <- c("readr", "lubridate", "tidyverse", "psych", "EFA.dimensions", "lavaan", "openxlsx", "semPlot", "semTools", "mixmgfa", "magrittr", "ggplot2", "patchwork")
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
 if(length(new.packages)) install.packages(new.packages)
 # Load required libraries
@@ -255,8 +255,10 @@ for(country in countries){
 #'#### Across-countries internal consistency descriptives
 #+ include=TRUE
 #'#### For emotional loneliness
+# lapply(djgPerCountryEF, function(x)x$ic[1])
 (icDjgEmotCountryDescEF <- describe(unlist(lapply(djgPerCountryEF, function(x)x$ic[1]))))
 #'#### For social loneliness
+# lapply(djgPerCountryEF, function(x)x$ic[2])
 (icDjgSocCountryDescEF <- describe(unlist(lapply(djgPerCountryEF, function(x)x$ic[2]))))
 
 #'### Detailed per-country results
@@ -1045,22 +1047,78 @@ for (country in names(corMatricesEF)) {
                          midpoint = 0, limit = c(-1, 1), space = "Lab", 
                          na.value = "white", name="Factor score\ncorrelation") +
     theme_minimal() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          plot.title = element_text(size = 9)) +
     labs(x = "Scale", y = "Correlate") +
     ggtitle(paste("Heatmap of latent correlations\nfor", country))
   
   print(p)
 }
+##################################
+#'#### Figure 1
+# Initialize an empty list to store the ggplot objects
+heatmap_list <- list()
 
-# Correlations of loneliness measures -------------------------------------
+# Generate heatmaps for the first 27 (or fewer) matrices
+for (country in names(corMatricesEF)[1:27]) {
+  cor_matrix <- corMatricesEF[[country]]
+  
+  # Convert the matrix to a long format data frame for ggplot2
+  cor_data <- as.data.frame(as.table(cor_matrix))
+  names(cor_data) <- c("Correlate", "Scale", "Correlation")
+  
+  # Create the heatmap
+  p <- ggplot(cor_data, aes(x = Scale, y = Correlate, fill = Correlation)) +
+    geom_tile() +
+    scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0, limit = c(-1, 1)) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 8),
+          axis.text.y = element_text(size = 8),
+          axis.title = element_blank(),
+          legend.position = "none",
+          plot.title = element_text(size = 9)) +
+    scale_x_discrete(labels = c("SoS", "He", "FD", "FH", "FaMI", "FaMR", "FrMI", "FrMR", "FaC", "FrC", "NC", "SA")) +
+    scale_y_discrete(labels = c("De", "Ds", "T", "S")) +  
+    ggtitle(country)
+  
+  # Add the plot to the list
+  heatmap_list[[country]] <- p
+}
 
-#'## Correlations of loneliness measures
+# Combine the plots using patchwork, with 6 columns
+combined_plot <- wrap_plots(heatmap_list, ncol = 6)
+
+# Print the combined plot
+print(combined_plot)
+
+# Correlations of study variables -------------------------------------
+
+#'## Correlations of study variables
 #'
 #'### Overall
+#'
+#' **Abbreviations of matrix variables**
+#' De = DJGLS-6 emotion, Ds = DJGLS-6 social, T = T-ILS, S = Single-item loneliness measure, 
+#' SoS = Social support, He = Health, FD = Feeling depressed, FH = Feeling happy, 
+#' FaMI = Family meet in-person, FaMR = Family meet remote, FrMI = Friends meet in-person, FrMR = Friends meet remote, 
+#' FaC = Family closeness, FrC = Friends closeness, NC = Neighbours contact, SA = Social activities
 
+# Specify the labels for the variables
+var_labels <- c("De", "Ds", "T", "S", "SoS", "He", "FD", "FH", "FaMI", "FaMR", 
+                "FrMI", "FrMR", "FaC", "FrC", "NC", "SA")
+
+# Assuming 'data' is your dataset and 'countries' is a vector of country names
 # Overall correlation matrix
-(overallCorrEF <- round(cor(data[, c("djg_emot_fs", "djg_social_fs", "tils_fs", "loneliness_direct_fs")], 
-                   use = "complete.obs"),2))
+overallCorrEF <- round(cor(data[, c("djg_emot_fs", "djg_social_fs", "tils_fs", "loneliness_direct_fs", 
+                                    "social_support_fs", "health_general_fs", "feelings_depr_fs", 
+                                    "feelings_happy_fs", "family_meet_face_fs", "family_meet_tele_fs", 
+                                    "friends_meet_face_fs", "friends_meet_tele_fs", "family_n__1__open_fs", 
+                                    "friends_n__1__open_fs", "neighbours_fs", "social_activities_a_fs")], 
+                           use = "complete.obs"), 2)
+
+# Assign the labels to the correlation matrix
+rownames(overallCorrEF) <- colnames(overallCorrEF) <- var_labels
+overallCorrEF
 
 # Initialize a list to store correlation matrices for each country
 corMatricesCountryEF <- list()
@@ -1074,14 +1132,21 @@ for (country in countries) {
   subset_data <- data[data$country == country, ]
   
   # Compute correlation matrix for the subset
-  cor_matrix <- round(cor(subset_data[, c("djg_emot_fs", "djg_social_fs", "tils_fs", "loneliness_direct_fs")], 
-                    use = "complete.obs"), 2)
+  cor_matrix <- round(cor(subset_data[, c("djg_emot_fs", "djg_social_fs", "tils_fs", "loneliness_direct_fs", 
+                                          "social_support_fs", "health_general_fs", "feelings_depr_fs", 
+                                          "feelings_happy_fs", "family_meet_face_fs", "family_meet_tele_fs", 
+                                          "friends_meet_face_fs", "friends_meet_tele_fs", "family_n__1__open_fs", 
+                                          "friends_n__1__open_fs", "neighbours_fs", "social_activities_a_fs")], 
+                          use = "complete.obs"), 2)
+  
+  # Assign the labels to the correlation matrix
+  rownames(cor_matrix) <- colnames(cor_matrix) <- var_labels
   
   # Store the matrix in the list
   corMatricesCountryEF[[country]] <- cor_matrix
   
-  # Compute and store the average correlation
-  avg_cor <- round(mean(cor_matrix[lower.tri(cor_matrix)], na.rm = TRUE), 2)
+  # Compute and store the average correlation among the first four measures
+  avg_cor <- round(mean(cor_matrix[1:4, 1:4][lower.tri(cor_matrix[1:4, 1:4])], na.rm = TRUE), 2)
   avgCorCountryEF[country] <- avg_cor
 }
 
