@@ -18,7 +18,7 @@ knitr::opts_chunk$set(echo=FALSE, warning = FALSE, fig.width = 10, fig.height = 
 
 # Libraries and script sourcing -------------------------------------------
 # Load libraries (and install if not installed already)
-list.of.packages <- c("readr", "lubridate", "tidyverse", "psych", "EFA.dimensions", "lavaan", "openxlsx", "semPlot", "semTools", "mixmgfa", "magrittr", "ggplot2", "patchwork")
+list.of.packages <- c("readr", "lubridate", "tidyverse", "psych", "EFA.dimensions", "lavaan", "openxlsx", "semPlot", "semTools", "magrittr", "ggplot2", "patchwork")
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
 if(length(new.packages)) install.packages(new.packages)
 # Load required libraries
@@ -114,9 +114,26 @@ round((sum(is.na(lonelinessDataEF)) / (nrow(lonelinessDataEF) * ncol(lonelinessD
 # Calculate age
 data$age <- year(Sys.Date()) - data$date_birth_year - (month(Sys.Date()) < data$date_birth_month)
 
-# Calculate loneliness scores
-data$loneliness_djgls_6 <- rowSums(data[,c("loneliness_djg_a", "loneliness_djg_b", "loneliness_djg_c", "loneliness_djg_d", "loneliness_djg_e", "loneliness_djg_f")], na.rm = TRUE)
-data$loneliness_t_ils <- rowSums(data[,c("loneliness_ucla_a", "loneliness_ucla_b", "loneliness_ucla_c")], na.rm = TRUE)
+# Calculate loneliness scores (no sum score is computed for a given scale in case the participant did not answer to all items of that given scale)
+data$loneliness_djgls_6 <- ifelse(
+  rowSums(is.na(data[, c("loneliness_djg_a", "loneliness_djg_b", "loneliness_djg_c", "loneliness_djg_d", "loneliness_djg_e", "loneliness_djg_f")])) == 0,
+  rowSums(data[, c("loneliness_djg_a", "loneliness_djg_b", "loneliness_djg_c", "loneliness_djg_d", "loneliness_djg_e", "loneliness_djg_f")], na.rm = FALSE),
+  NA
+)
+
+data$loneliness_t_ils <- ifelse(
+  rowSums(is.na(data[, c("loneliness_ucla_a", "loneliness_ucla_b", "loneliness_ucla_c")])) == 0,
+  rowSums(data[, c("loneliness_ucla_a", "loneliness_ucla_b", "loneliness_ucla_c")], na.rm = FALSE),
+  NA
+)
+
+# Checks the number of NA for age, gender, educational attainment, djgls-6, t-ils, and direct loneliness
+sum(is.na(data$age))
+sum(data$gender == "Prefer not to say")
+sum(data$education == "Prefer not to say")
+sum(is.na(data$loneliness_djgls_6))
+sum(is.na(data$loneliness_t_ils))
+sum(is.na(data$loneliness_direct))
 
 # Calculate statistics by country
 statistics_by_country <- data %>%
@@ -126,6 +143,9 @@ statistics_by_country <- data %>%
     age_mdn = median(age, na.rm = TRUE),
     age_mean = mean(age, na.rm = TRUE),
     age_sd = sd(age, na.rm = TRUE),
+    male = sum(gender == "Male", na.rm = TRUE) / sum(!is.na(gender)) * 100,
+    female = sum(gender == "Female", na.rm = TRUE) / sum(!is.na(gender)) * 100,
+    other = sum(gender == "In another way", na.rm = TRUE) / sum(!is.na(gender)) * 100,
     djgls_6_mdn = median(loneliness_djgls_6, na.rm = TRUE),
     djgls_6_mean = mean(loneliness_djgls_6, na.rm = TRUE),
     djgls_6_sd = sd(loneliness_djgls_6, na.rm = TRUE),
@@ -144,6 +164,9 @@ statistics_overall <- data %>%
     age_mdn = median(age, na.rm = TRUE),
     age_mean = mean(age, na.rm = TRUE),
     age_sd = sd(age, na.rm = TRUE),
+    male = sum(gender == "Male", na.rm = TRUE) / sum(!is.na(gender)) * 100,
+    female = sum(gender == "Female", na.rm = TRUE) / sum(!is.na(gender)) * 100,
+    other = sum(gender == "In another way", na.rm = TRUE) / sum(!is.na(gender)) * 100,
     djgls_6_mdn = median(loneliness_djgls_6, na.rm = TRUE),
     djgls_6_mean = mean(loneliness_djgls_6, na.rm = TRUE),
     djgls_6_sd = sd(loneliness_djgls_6, na.rm = TRUE),
@@ -156,7 +179,7 @@ statistics_overall <- data %>%
   )
 
 statisticsByCountryEF <- rbind(statistics_by_country, statistics_overall)
-roundDf(as.data.frame(statisticsByCountryEF))
+statisticsByCountryEF <- roundDf(as.data.frame(statisticsByCountryEF))
 
 # Save the results to a CSV file
 write.csv(statisticsByCountryEF, "output_statistics_by_country.csv")
@@ -421,17 +444,17 @@ data_djg[[1]] <- as.numeric(as.factor(data_djg[[1]]))
 
 #The code below is to be run in case measurement invariance failed at any of three levels above
 #+ include=FALSE
-djgMmgEF <- mixmgfa(data = as.data.frame(data_djg[,-c(2,3)]),
+djgMmgEF <- MixtureMG_FA(data = as.data.frame(data_djg[,-c(2,3)]),
         cluster.spec = c("loadings", "intercepts"),
         nsclust = c(1,6), #invariant at the scalar level
         nfactors = djg_factors, #number of factors to be determined following the factor analyses // mixmgfa is suppposed to identify the appropriate factor structure automatically (to be confirmed by asking Kim De Roover)
-        maxiter = 5000, #default values
+        Maxiter = 5000, #default values
         nruns = 50, #default value; (important setting to avoid local maxima in case of few groups and/or small groups)
         design = 0, #default value (use of EFAs)
         #rotation = "oblimin", #parameter to add in case nfactors = 2
         preselect = 10)
 
-clusters <- as.data.frame(round(djgMmgEF$MMGFAsolutions[[3]]$clustermemberships, 3))
+clusters <- as.data.frame(round(djgMmgEF$MMGFA_solutions[[3]]$clustermemberships, 3))
 rownames(clusters) <- countries
 
 # Choose the best number of clusters ('K_best') based on the BIC_G and CHull scree ratios and the plots. For plots, use 'plot(OutputObject$overview)'.
@@ -441,13 +464,13 @@ rownames(clusters) <- countries
 # The parameter sets are further subdivided in group- and/or cluster-specific parameter sets.
 
 # Here we define the clusters of countries invariant at the scalar level, and subsequently test measurement invariance (configural, metric, scalar) using multigroup confirmatory factor analysis on them
-djg_cluster_a_names <- rownames(clusters)[which(clusters$Cluster_1 == 1)] #vector of numerical IDs representing each country that are part of the same cluster (e.g., c(1, 4, 5, 9, 10))
-djg_cluster_b_names <- rownames(clusters)[which(clusters$Cluster_2 == 1)] #vector of numerical IDs representing each country that are part of the same cluster (e.g., c(2, 3, 7, 11, 12))
-djg_cluster_c_names <- rownames(clusters)[which(clusters$Cluster_3 == 1)] #vector of numerical IDs representing each country that are part of the same cluster (e.g., c(6, 8, 13, 14))
+djg_cluster_a_names <- rownames(clusters)[which(clusters$Cluster_1 >= 0.5)] #vector of numerical IDs representing each country that are part of the same cluster (e.g., c(1, 4, 5, 9, 10))
+djg_cluster_b_names <- rownames(clusters)[which(clusters$Cluster_2 >= 0.5)] #vector of numerical IDs representing each country that are part of the same cluster (e.g., c(2, 3, 7, 11, 12))
+djg_cluster_c_names <- rownames(clusters)[which(clusters$Cluster_3 >= 0.5)] #vector of numerical IDs representing each country that are part of the same cluster (e.g., c(6, 8, 13, 14))
 
-djg_cluster_a <- which(clusters$Cluster_1 == 1) #vector of numerical IDs representing each country that are part of the same cluster (e.g., c(1, 4, 5, 9, 10))
-djg_cluster_b <- which(clusters$Cluster_2 == 1) #vector of numerical IDs representing each country that are part of the same cluster (e.g., c(2, 3, 7, 11, 12))
-djg_cluster_c <- which(clusters$Cluster_3 == 1) 
+djg_cluster_a <- which(clusters$Cluster_1 >= 0.5) #vector of numerical IDs representing each country that are part of the same cluster (e.g., c(1, 4, 5, 9, 10))
+djg_cluster_b <- which(clusters$Cluster_2 >= 0.5) #vector of numerical IDs representing each country that are part of the same cluster (e.g., c(2, 3, 7, 11, 12))
+djg_cluster_c <- which(clusters$Cluster_3 >= 0.5) 
 
 djg_clusters_list <- list(cluster_a = djg_cluster_a, 
                           cluster_b = djg_cluster_b, 
@@ -466,11 +489,13 @@ for (i in seq_along(djg_clusters_list)) {
   temp_config <- cfa(model = djg_model_2F,
                      data = temp_data,
                      estimator = "WLSMV",
+                     ordered=TRUE,
                      group = "country")
   
   temp_metric <- cfa(model = djg_model_2F,
                      data = temp_data,
                      estimator = "WLSMV",
+                     ordered=TRUE,
                      group = "country",
                      group.equal = c("loadings"))
   temp_metric_sign <- lavTestLRT(temp_config, temp_metric)
@@ -478,6 +503,7 @@ for (i in seq_along(djg_clusters_list)) {
   temp_scalar <- cfa(model = djg_model_2F,
                      data = temp_data,
                      estimator = "WLSMV",
+                     ordered=TRUE,
                      group = "country",
                      group.equal = c("loadings", "intercepts"))
   temp_scalar_sign <- lavTestLRT(temp_metric, temp_scalar)
@@ -496,9 +522,13 @@ djgMmgResultsEF <- data.frame(clusterID = character(),
                          cfi_configural = numeric(),
                          rmsea_configural = numeric(),
                          chisq_metric = character(),
-                         chisq_metric_diff = character(),
+                         cfi_metric = character(),
+                         rmsea_metric = character(),
+                         #chisq_metric_diff = character(),
                          chisq_scalar = character(),
-                         chisq_scalar_diff = character(),
+                         cfi_scalar = character(),
+                         rmsea_scalar = character(),
+                         #chisq_scalar_diff = character(),
                          stringsAsFactors = FALSE)
 
 # Function to format chisq, df, and pvalue into a string with specified rounding and conditions
@@ -526,9 +556,13 @@ for (cluster in clusters) {
   cfi_configural <- round_two_decimals(configural["cfi"])
   rmsea_configural <- round_two_decimals(configural["rmsea"])
   chisq_metric <- format_chisq(metric_model["chisq"], metric_model["df"], metric_model["pvalue"])
-  chisq_metric_diff <- format_chisq(metric_sign["chisq"], metric_sign["df"], metric_sign["p"])
+  cfi_metric <- round_two_decimals(djg_clusters_invariance[[cluster]]$metric$model["cfi"])
+  rmsea_metric <- round_two_decimals(djg_clusters_invariance[[cluster]]$metric$model["rmsea"])
+  #chisq_metric_diff <- format_chisq(metric_sign["chisq"], metric_sign["df"], metric_sign["p"])
   chisq_scalar <- format_chisq(scalar_model["chisq"], scalar_model["df"], scalar_model["pvalue"])
-  chisq_scalar_diff <- format_chisq(scalar_sign["chisq"], scalar_sign["df"], scalar_sign["p"])
+  cfi_scalar <- round_two_decimals(djg_clusters_invariance[[cluster]]$scalar$model["cfi"])
+  rmsea_scalar <- round_two_decimals(djg_clusters_invariance[[cluster]]$scalar$model["rmsea"])
+  #chisq_scalar_diff <- format_chisq(scalar_sign["chisq"], scalar_sign["df"], scalar_sign["p"])
   
   # Append the row to the dataframe
   djgMmgResultsEF <- rbind(djgMmgResultsEF, data.frame(clusterID = cluster,
@@ -536,9 +570,13 @@ for (cluster in clusters) {
                                              cfi_configural = cfi_configural,
                                              rmsea_configural = rmsea_configural,
                                              chisq_metric = chisq_metric,
-                                             chisq_metric_diff = chisq_metric_diff,
+                                             cfi_metric = cfi_metric,
+                                             rmsea_metric = rmsea_metric,
+                                             #chisq_metric_diff = chisq_metric_diff,
                                              chisq_scalar = chisq_scalar,
-                                             chisq_scalar_diff = chisq_scalar_diff,
+                                             cfi_scalar = cfi_scalar,
+                                             rmsea_scalar = rmsea_scalar,
+                                             #chisq_scalar_diff = chisq_scalar_diff,
                                              stringsAsFactors = FALSE))
 }
 
@@ -730,8 +768,17 @@ relevant_vars_per_construct <- list(
 for (construct in names(models)) {
   # Filter data for current construct, ensuring all specified variables are complete and have variance
   temp_data <- na.omit(data[relevant_vars_per_construct[[construct]]])
+
+  if(construct == "social_support") {
+    estimator <- "MLR"
+    ordered <- FALSE
+  } else {
+    estimator <- "WLSMV"
+    ordered <- TRUE
+  }
+
   if(nrow(temp_data) > 0) {
-    fit <- cfa(models[[construct]], data = temp_data, estimator = "MLR")
+    fit <- cfa(models[[construct]], data = temp_data, estimator = estimator, ordered = ordered)
     # Factor scores will be NA for rows/observations removed by na.omit
     data[[paste0(construct, "_lv")]] <- NA
     valid_indices <- which(complete.cases(data[relevant_vars_per_construct[[construct]]]))
@@ -756,9 +803,17 @@ for (indicator in single_indicators) {
 for (construct in names(models)) {
   # Filter data for current construct, ensuring specified variables are complete and have variance
   temp_data <- na.omit(data[, relevant_vars_per_construct[[construct]]])
+
+  if(construct == "social_support") {
+    estimator <- "MLR"
+    ordered <- FALSE
+  } else {
+    estimator <- "WLSMV"
+    ordered <- TRUE
+  }
   
   if(nrow(temp_data) > 0) {
-    fit <- cfa(models[[construct]], data = temp_data, estimator = "WLSMV", ordered = TRUE)
+    fit <- cfa(models[[construct]], data = temp_data, estimator = estimator, ordered = ordered)
     # Initialize factor score columns for single-indicator constructs with NA
     data[[paste0(construct, "_fs")]] <- NA  
     valid_indices <- which(complete.cases(data[, relevant_vars_per_construct[[construct]]]))
@@ -771,9 +826,9 @@ for (construct in names(models)) {
 
 # Nomological nets --------------------------------------------------------
 variableList <- list(
-  fullNet = c("social_support_fs", "health_general_fs", "feelings_depr_fs", "feelings_happy_fs", "family_meet_face_fs", "family_meet_tele_fs", "friends_meet_face_fs", "friends_meet_tele_fs", "family_n__1__open_fs", "friends_n__1__open_fs", "neighbours_fs", "social_activities_a_fs"),
+  fullNet = c("social_support_fs", "friends_n__1__open_fs", "family_n__1__open_fs", "friends_meet_face_fs", "family_meet_face_fs", "friends_meet_tele_fs", "family_meet_tele_fs", "neighbours_fs", "social_activities_a_fs", "feelings_depr_fs", "feelings_happy_fs", "health_general_fs"),
+  socialActivities = c("social_support_fs", "friends_n__1__open_fs", "family_n__1__open_fs", "friends_meet_face_fs", "family_meet_face_fs", "friends_meet_tele_fs", "family_meet_tele_fs", "neighbours_fs", "social_activities_a_fs"),
   deprHappy = c("feelings_depr_fs", "feelings_happy_fs"),
-  socialActivities = c("social_support_fs", "family_meet_face_fs", "family_meet_tele_fs", "friends_meet_face_fs", "friends_meet_tele_fs", "family_n__1__open_fs", "friends_n__1__open_fs", "neighbours_fs", "social_activities_a_fs"),
   health = c("health_general_fs")
 )
 
@@ -828,7 +883,7 @@ for (set_name in names(variableList)) {
             valid_data <- temp_data[valid_data_indices, ]
             
             # Compute Pearson correlation
-            pearson_cor <- cor(valid_data[[primary_measure]], valid_data[[secondary_measure]], use = "complete.obs")
+            pearson_cor <- cor(valid_data[[primary_measure]], valid_data[[secondary_measure]], use = "pairwise.complete.obs")
             
             # Fit linear model and compute summary
             linear_model_formula <- as.formula(paste(secondary_measure, "~", primary_measure))
@@ -892,15 +947,12 @@ measure_sets <- list(
 
 expected_direction <- list(
   positive = "feelings_depr_fs",
-  negative = c("social_support_mean_fs", "family_meet_face_fs", "family_meet_tele_fs", 
-               "friends_meet_face_fs", "friends_meet_tele_fs", "family_n__1__open_fs", 
-               "friends_n__1__open_fs", "social_activities_a_fs", "neighbours_fs", 
-               "feelings_happy_fs", "health_general_fs")
+  negative = c("social_support_fs", "friends_n__1__open_fs", "family_n__1__open_fs", "friends_meet_face_fs", "family_meet_face_fs", "friends_meet_tele_fs", "family_meet_tele_fs", "neighbours_fs", "social_activities_a_fs", "feelings_happy_fs", "health_general_fs")
 )
 
 # Function to determine if correlation is in the expected direction and meets criteria
 is_cor_meeting_criteria <- function(cor, measure, p_value, expected_positive, expected_negative) {
-  if (p_value <= 0.004 && abs(cor) > 0.10) {
+  if (p_value <= 0.004 && abs(cor) >= 0.10) {
     if (measure %in% expected_positive && cor > 0) {
       return(TRUE)
     } else if (measure %in% expected_negative && cor < 0) {
@@ -954,8 +1006,8 @@ final_results <- data.frame(
 for (name in names(proportions_list)) {
   current_table <- proportions_list[[name]]
   
-  proportion_over_two_thirds <- mean(current_table$proportion > 2/3)
-  count_over_two_thirds <- sum(current_table$proportion > 2/3)
+  proportion_over_two_thirds <- mean(current_table$proportion >= 2/3)
+  count_over_two_thirds <- sum(current_table$proportion >= 2/3)
   
   final_results <- rbind(final_results, data.frame(
     Measure_Set = name,
@@ -966,14 +1018,14 @@ for (name in names(proportions_list)) {
 
 #'## Nomological net proportions per country
 #'
-#' Separately for all countries, shows the proportion of correlation effects that were significant, |r|>.10, and in the expected direction
+#' Separately for all countries, shows the proportion of correlation effects that were significant, |r|>=.10, and in the expected direction
 #' 
 #' fullNet = all constructs; deprHappy = depression and happiness, socialActivities = social support, in-person and remote contact with family, friends, neighbours, closeness to family and friends, social activities; health = self-reported general health.
 (nomologicalNetPropsPerCountryEF <- roundDf(as.data.frame(combined_proportions_df[,c(-1)])))
 
 #'## Nomological net proportions overall
 #'
-#' Shows for each nomological network (loneliness instrument + relevant variables), for how many countries was the number of relationships in the nomological network over 2/3.
+#' Shows for each nomological network (loneliness instrument + relevant variables), for how many countries was the number of relationships in the nomological network at least 2/3.
 nomologicalNetProportionsEF <- final_results
 roundDf(nomologicalNetProportionsEF)
 
@@ -1017,11 +1069,9 @@ corMatricesEF
 # Define the custom labels for primary and secondary measures
 primary_labels <- setNames(c("DJGLS-6 emotion", "DJGLS-6 social", "T-ILS", "Single-item"),
                            unique(unlist(lapply(corMatricesEF, rownames))))
-secondary_labels <- setNames(c("Social support", "Health", "Feeling depressed", "Feeling happy", 
-                               "Family meet in-person", "Family meet remote", 
-                               "Friends meet in-person", "Friends meet remote", 
-                               "Family closeness", "Friends closeness", 
-                               "Neighbours contact", "Social activities"),
+secondary_labels <- setNames(c("Social support", "Friends closeness", "Family closeness", "Friends meet in-person",
+                               "Family meet in-person", "Friends meet remote", "Family meet remote", 
+                               "Neighbours contact", "Social activities", "Feeling depressed", "Feeling happy", "Health"),
                              unique(unlist(lapply(corMatricesEF, colnames))))
 
 #'## Heatmaps for the per-country correlation matrices
@@ -1077,7 +1127,7 @@ for (country in names(corMatricesEF)[1:27]) {
           axis.title = element_blank(),
           legend.position = "none",
           plot.title = element_text(size = 9)) +
-    scale_x_discrete(labels = c("SoS", "He", "FD", "FH", "FaMI", "FaMR", "FrMI", "FrMR", "FaC", "FrC", "NC", "SA")) +
+    scale_x_discrete(labels = c("SoS", "FrC", "FaC", "FrMI", "FaMI", "FrMR", "FaMR", "NC", "SA", "FD", "FH", "He")) +
     scale_y_discrete(labels = c("De", "Ds", "T", "S")) +  
     ggtitle(country)
   
@@ -1104,17 +1154,17 @@ print(combined_plot)
 #' FaC = Family closeness, FrC = Friends closeness, NC = Neighbours contact, SA = Social activities
 
 # Specify the labels for the variables
-var_labels <- c("De", "Ds", "T", "S", "SoS", "He", "FD", "FH", "FaMI", "FaMR", 
-                "FrMI", "FrMR", "FaC", "FrC", "NC", "SA")
+var_labels <- c("De", "Ds", "T", "S", "SoS", "FrC", "FaC", "FrMI", "FaMI", "FrMR", 
+                "FaMR", "NC", "SA", "FD", "FH", "He")
 
 # Assuming 'data' is your dataset and 'countries' is a vector of country names
 # Overall correlation matrix
 overallCorrEF <- round(cor(data[, c("djg_emot_fs", "djg_social_fs", "tils_fs", "loneliness_direct_fs", 
-                                    "social_support_fs", "health_general_fs", "feelings_depr_fs", 
-                                    "feelings_happy_fs", "family_meet_face_fs", "family_meet_tele_fs", 
-                                    "friends_meet_face_fs", "friends_meet_tele_fs", "family_n__1__open_fs", 
-                                    "friends_n__1__open_fs", "neighbours_fs", "social_activities_a_fs")], 
-                           use = "complete.obs"), 2)
+                                    "social_support_fs", "friends_n__1__open_fs", "family_n__1__open_fs", 
+                                    "friends_meet_face_fs", "family_meet_face_fs", "friends_meet_tele_fs", 
+                                    "family_meet_tele_fs", "neighbours_fs", "social_activities_a_fs", 
+                                    "feelings_depr_fs", "feelings_happy_fs", "health_general_fs")], 
+                           use = "pairwise.complete.obs"), 2)
 
 # Assign the labels to the correlation matrix
 rownames(overallCorrEF) <- colnames(overallCorrEF) <- var_labels
@@ -1133,11 +1183,11 @@ for (country in countries) {
   
   # Compute correlation matrix for the subset
   cor_matrix <- round(cor(subset_data[, c("djg_emot_fs", "djg_social_fs", "tils_fs", "loneliness_direct_fs", 
-                                          "social_support_fs", "health_general_fs", "feelings_depr_fs", 
-                                          "feelings_happy_fs", "family_meet_face_fs", "family_meet_tele_fs", 
-                                          "friends_meet_face_fs", "friends_meet_tele_fs", "family_n__1__open_fs", 
-                                          "friends_n__1__open_fs", "neighbours_fs", "social_activities_a_fs")], 
-                          use = "complete.obs"), 2)
+                                          "social_support_fs", "friends_n__1__open_fs", "family_n__1__open_fs", 
+                                          "friends_meet_face_fs", "family_meet_face_fs", "friends_meet_tele_fs", 
+                                          "family_meet_tele_fs", "neighbours_fs", "social_activities_a_fs", 
+                                          "feelings_depr_fs", "feelings_happy_fs", "health_general_fs")], 
+                          use = "pairwise.complete.obs"), 2)
   
   # Assign the labels to the correlation matrix
   rownames(cor_matrix) <- colnames(cor_matrix) <- var_labels
